@@ -228,6 +228,7 @@ function mapCliOptionsToSDK(options = {}) {
  * @param {string} tempDir - Temp directory for cleanup
  */
 function addSession(sessionId, queryInstance, tempImagePaths = [], tempDir = null, writer = null) {
+  const existed = activeSessions.has(sessionId);
   activeSessions.set(sessionId, {
     instance: queryInstance,
     startTime: Date.now(),
@@ -236,6 +237,7 @@ function addSession(sessionId, queryInstance, tempImagePaths = [], tempDir = nul
     tempDir,
     writer
   });
+  console.log(`[trace][session] addSession id=${sessionId} existed=${existed} total=${activeSessions.size}`);
 }
 
 /**
@@ -243,7 +245,8 @@ function addSession(sessionId, queryInstance, tempImagePaths = [], tempDir = nul
  * @param {string} sessionId - Session identifier
  */
 function removeSession(sessionId) {
-  activeSessions.delete(sessionId);
+  const existed = activeSessions.delete(sessionId);
+  console.log(`[trace][session] removeSession id=${sessionId} existed=${existed} total=${activeSessions.size}`);
 }
 
 /**
@@ -476,6 +479,9 @@ async function queryClaudeSDK(command, options = {}, ws) {
   let sessionCreatedSent = false;
   let tempImagePaths = [];
   let tempDir = null;
+  const queryId = Math.random().toString(36).slice(2, 8);
+  const alreadyActive = sessionId && activeSessions.has(sessionId);
+  console.log(`[trace][session] queryClaudeSDK ENTER q=${queryId} sessionId=${sessionId || 'NEW'} alreadyActive=${alreadyActive} total=${activeSessions.size}`);
 
   const emitNotification = (event) => {
     notifyUserIfEnabled({
@@ -627,6 +633,7 @@ async function queryClaudeSDK(command, options = {}, ws) {
     }
 
     // Process streaming messages
+    console.log(`[trace][session] generator ENTER q=${queryId} sid=${capturedSessionId || 'NEW'}`);
     console.log('Starting async generator loop for session:', capturedSessionId || 'NEW');
     for await (const message of queryInstance) {
       // Capture session ID from first message
@@ -682,6 +689,7 @@ async function queryClaudeSDK(command, options = {}, ws) {
       }
     }
 
+    console.log(`[trace][session] generator EXIT normal q=${queryId} sid=${capturedSessionId}`);
     // Clean up session on completion
     if (capturedSessionId) {
       removeSession(capturedSessionId);
@@ -702,6 +710,7 @@ async function queryClaudeSDK(command, options = {}, ws) {
     // Complete
 
   } catch (error) {
+    console.log(`[trace][session] generator EXIT error q=${queryId} sid=${capturedSessionId} err=${error?.message}`);
     console.error('SDK query error:', error);
 
     // Clean up session on error
@@ -737,6 +746,7 @@ async function queryClaudeSDK(command, options = {}, ws) {
  */
 async function abortClaudeSDKSession(sessionId) {
   const session = getSession(sessionId);
+  console.log(`[trace][session] abort requested id=${sessionId} found=${!!session} status=${session?.status || 'n/a'} total=${activeSessions.size}`);
 
   if (!session) {
     console.log(`Session ${sessionId} not found`);
@@ -814,8 +824,13 @@ function getPendingApprovalsForSession(sessionId) {
  */
 function reconnectSessionWriter(sessionId, newRawWs) {
   const session = getSession(sessionId);
-  if (!session?.writer?.updateWebSocket) return false;
+  if (!session?.writer?.updateWebSocket) {
+    console.log(`[trace][session] reconnect FAIL id=${sessionId} hasSession=${!!session} hasWriter=${!!session?.writer}`);
+    return false;
+  }
+  const oldWsState = session.writer?.ws?.readyState;
   session.writer.updateWebSocket(newRawWs);
+  console.log(`[trace][session] reconnect OK id=${sessionId} oldWsState=${oldWsState} newWsState=${newRawWs?.readyState} status=${session.status}`);
   console.log(`[RECONNECT] Writer swapped for session ${sessionId}`);
   return true;
 }

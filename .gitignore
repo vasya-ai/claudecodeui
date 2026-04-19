@@ -140,3 +140,4 @@ tasks/
 
 # Git worktrees
 .worktrees/
+.env.dev.backup
