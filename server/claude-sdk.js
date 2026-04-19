@@ -33,6 +33,12 @@ const pendingToolApprovals = new Map();
 
 const TOOL_APPROVAL_TIMEOUT_MS = parseInt(process.env.CLAUDE_TOOL_APPROVAL_TIMEOUT_MS, 10) || 55000;
 
+// Grace window after `complete`/`error` during which the session is kept in
+// activeSessions so a reconnecting client's check-session-status can still
+// trigger reconnectSessionWriter and flush any messages that the writer
+// buffered while its ws was not OPEN.
+const POST_COMPLETION_GRACE_MS = parseInt(process.env.CLAUDE_POST_COMPLETION_GRACE_MS, 10) || 15000;
+
 const TOOLS_REQUIRING_INTERACTION = new Set(['AskUserQuestion', 'ExitPlanMode']);
 
 function createRequestId() {
@@ -244,6 +250,25 @@ function addSession(sessionId, queryInstance, tempImagePaths = [], tempDir = nul
  */
 function removeSession(sessionId) {
   activeSessions.delete(sessionId);
+}
+
+/**
+ * Schedule a delayed removal of a completed session. The delay lets a
+ * post-completion client reconnect still drive reconnectSessionWriter() and
+ * flush any buffered messages. The identity guard (`current === snapshot`)
+ * ensures a new query on the same sessionId taken out before the timer fires
+ * is not deleted by an old timer.
+ * @param {string|null} sessionId
+ */
+function scheduleSessionCleanup(sessionId) {
+  if (!sessionId) return;
+  const snapshot = activeSessions.get(sessionId);
+  if (!snapshot) return;
+  setTimeout(() => {
+    if (activeSessions.get(sessionId) === snapshot) {
+      activeSessions.delete(sessionId);
+    }
+  }, POST_COMPLETION_GRACE_MS).unref?.();
 }
 
 /**
@@ -682,16 +707,22 @@ async function queryClaudeSDK(command, options = {}, ws) {
       }
     }
 
-    // Clean up session on completion
-    if (capturedSessionId) {
-      removeSession(capturedSessionId);
-    }
+    // Send completion event BEFORE scheduling session teardown. If the client
+    // ws is not OPEN at this moment, WebSocketWriter buffers `complete` in
+    // pendingMessages. The buffer is flushed only via reconnectSessionWriter,
+    // which requires isClaudeSDKSessionActive(sessionId) === true. We therefore
+    // keep the session in the map for POST_COMPLETION_GRACE_MS so that a
+    // reconnecting client's check-session-status lands while the session is
+    // still registered → writer swaps → buffer flushes. Identity guard below
+    // prevents a later queryClaudeSDK() for the same sessionId from being
+    // clobbered by an in-flight grace timer.
+    ws.send(createNormalizedMessage({ kind: 'complete', exitCode: 0, isNewSession: !sessionId && !!command, sessionId: capturedSessionId, provider: 'claude' }));
+
+    scheduleSessionCleanup(capturedSessionId);
 
     // Clean up temporary image files
     await cleanupTempFiles(tempImagePaths, tempDir);
 
-    // Send completion event
-    ws.send(createNormalizedMessage({ kind: 'complete', exitCode: 0, isNewSession: !sessionId && !!command, sessionId: capturedSessionId, provider: 'claude' }));
     notifyRunStopped({
       userId: ws?.userId || null,
       provider: 'claude',
@@ -704,22 +735,21 @@ async function queryClaudeSDK(command, options = {}, ws) {
   } catch (error) {
     console.error('SDK query error:', error);
 
-    // Clean up session on error
-    if (capturedSessionId) {
-      removeSession(capturedSessionId);
-    }
-
-    // Clean up temporary image files on error
-    await cleanupTempFiles(tempImagePaths, tempDir);
-
     // Check if Claude CLI is installed for a clearer error message
     const installed = getStatusChecker('claude')?.checkInstalled() ?? true;
     const errorContent = !installed
       ? 'Claude Code is not installed. Please install it first: https://docs.anthropic.com/en/docs/claude-code'
       : error.message;
 
-    // Send error to WebSocket
+    // Send error BEFORE scheduling cleanup for the same reason as `complete`:
+    // keep the session reachable by reconnectSessionWriter long enough for a
+    // reconnect-and-flush window.
     ws.send(createNormalizedMessage({ kind: 'error', content: errorContent, sessionId: capturedSessionId || sessionId || null, provider: 'claude' }));
+
+    scheduleSessionCleanup(capturedSessionId);
+
+    // Clean up temporary image files on error
+    await cleanupTempFiles(tempImagePaths, tempDir);
     notifyRunFailed({
       userId: ws?.userId || null,
       provider: 'claude',

@@ -17,6 +17,27 @@ let activeGeminiProcesses = new Map(); // Track active processes by session ID
 // the client ws without changing the shape of activeGeminiProcesses.
 const activeGeminiWriters = new Map();
 
+// Grace window after `complete`/`error` during which session entries are kept
+// so a reconnecting client's check-session-status can still trigger
+// reconnectGeminiSessionWriter and flush any messages WebSocketWriter buffered
+// while the original ws was not OPEN.
+const POST_COMPLETION_GRACE_MS = parseInt(process.env.GEMINI_POST_COMPLETION_GRACE_MS, 10) || 15000;
+
+function scheduleGeminiCleanup(sessionId) {
+    if (!sessionId) return;
+    const procSnapshot = activeGeminiProcesses.get(sessionId);
+    const writerSnapshot = activeGeminiWriters.get(sessionId);
+    if (!procSnapshot && !writerSnapshot) return;
+    setTimeout(() => {
+        if (activeGeminiProcesses.get(sessionId) === procSnapshot) {
+            activeGeminiProcesses.delete(sessionId);
+        }
+        if (activeGeminiWriters.get(sessionId) === writerSnapshot) {
+            activeGeminiWriters.delete(sessionId);
+        }
+    }, POST_COMPLETION_GRACE_MS).unref?.();
+}
+
 async function spawnGemini(command, options = {}, ws) {
     const { sessionId, projectPath, cwd, toolsSettings, permissionMode, images, sessionSummary } = options;
     let capturedSessionId = sessionId; // Track session ID throughout the process
@@ -365,17 +386,19 @@ async function spawnGemini(command, options = {}, ws) {
                 responseHandler.destroy();
             }
 
-            // Clean up process reference
             const finalSessionId = capturedSessionId || sessionId || processKey;
-            activeGeminiProcesses.delete(finalSessionId);
-            activeGeminiWriters.delete(finalSessionId);
 
             // Save assistant response to session if we have one
             if (finalSessionId && assistantBlocks.length > 0) {
                 sessionManager.addMessage(finalSessionId, 'assistant', assistantBlocks);
             }
 
+            // Send `complete` BEFORE scheduling cleanup so reconnectGeminiSessionWriter
+            // can still locate the session during POST_COMPLETION_GRACE_MS and flush
+            // any messages WebSocketWriter buffered while the client's ws was closed.
             ws.send(createNormalizedMessage({ kind: 'complete', exitCode: code, isNewSession: !sessionId && !!command, sessionId: finalSessionId, provider: 'gemini' }));
+
+            scheduleGeminiCleanup(finalSessionId);
 
             // Clean up temporary image files if any
             if (geminiProcess.tempImagePaths && geminiProcess.tempImagePaths.length > 0) {
@@ -410,10 +433,7 @@ async function spawnGemini(command, options = {}, ws) {
 
         // Handle process errors
         geminiProcess.on('error', (error) => {
-            // Clean up process reference on error
             const finalSessionId = capturedSessionId || sessionId || processKey;
-            activeGeminiProcesses.delete(finalSessionId);
-            activeGeminiWriters.delete(finalSessionId);
 
             // Check if Gemini CLI is installed for a clearer error message
             const installed = getStatusChecker('gemini')?.checkInstalled() ?? true;
@@ -421,8 +441,13 @@ async function spawnGemini(command, options = {}, ws) {
                 ? 'Gemini CLI is not installed. Please install it first: https://github.com/google-gemini/gemini-cli'
                 : error.message;
 
+            // Send error BEFORE scheduling cleanup — same grace-window rationale
+            // as the close handler above.
             const errorSessionId = typeof ws.getSessionId === 'function' ? ws.getSessionId() : finalSessionId;
             ws.send(createNormalizedMessage({ kind: 'error', content: errorContent, sessionId: errorSessionId, provider: 'gemini' }));
+
+            scheduleGeminiCleanup(finalSessionId);
+
             notifyTerminalState({ error });
 
             reject(error);
