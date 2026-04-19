@@ -1382,22 +1382,75 @@ wss.on('connection', (ws, request) => {
  * adapter `normalizeMessage()` to produce unified NormalizedMessage events.
  * The writer simply serialises and sends.
  */
+const WEBSOCKET_WRITER_MAX_BUFFER = 1000;
+
 class WebSocketWriter {
     constructor(ws, userId = null) {
         this.ws = ws;
         this.sessionId = null;
         this.userId = userId;
         this.isWebSocketWriter = true;  // Marker for transport detection
+        // Outgoing messages that arrived while the underlying ws was not OPEN.
+        // Flushed on updateWebSocket() once a fresh ws is attached. Stored pre-
+        // serialized so flush does not re-stringify (also captures stringify
+        // errors at send-time rather than deep in reconnect code).
+        this.pendingMessages = [];
     }
 
     send(data) {
-        if (this.ws.readyState === 1) { // WebSocket.OPEN
-            this.ws.send(JSON.stringify(data));
+        let serialized;
+        try {
+            serialized = JSON.stringify(data);
+        } catch (err) {
+            console.error('[WebSocketWriter] JSON.stringify failed, dropping message:', err?.message || err);
+            return;
         }
+        if (this.ws && this.ws.readyState === 1) { // WebSocket.OPEN
+            try {
+                this.ws.send(serialized);
+                return;
+            } catch (err) {
+                console.error('[WebSocketWriter] ws.send threw, will buffer:', err?.message || err);
+                // fall through to buffer path
+            }
+        }
+        this._bufferPush(serialized);
+    }
+
+    _bufferPush(serialized) {
+        if (this.pendingMessages.length >= WEBSOCKET_WRITER_MAX_BUFFER) {
+            this.pendingMessages.shift();
+            console.warn(`[WebSocketWriter] buffer full (${WEBSOCKET_WRITER_MAX_BUFFER}), dropping oldest for session ${this.sessionId || 'unknown'}`);
+        }
+        this.pendingMessages.push(serialized);
     }
 
     updateWebSocket(newRawWs) {
+        // Swap first so any concurrent send() during this method's synchronous
+        // run goes through the new ws, not the old one. (JS is single-threaded
+        // so no actual concurrency, but intent is clearer this way.)
         this.ws = newRawWs;
+        if (!newRawWs || newRawWs.readyState !== 1 || this.pendingMessages.length === 0) return;
+        const toFlush = this.pendingMessages;
+        this.pendingMessages = [];
+        let flushed = 0;
+        for (const msg of toFlush) {
+            if (newRawWs.readyState !== 1) {
+                // New ws closed mid-flush: keep the rest, order preserved.
+                this.pendingMessages.push(msg);
+                continue;
+            }
+            try {
+                newRawWs.send(msg);
+                flushed++;
+            } catch (err) {
+                console.error('[WebSocketWriter] send during flush failed, re-buffering:', err?.message || err);
+                this.pendingMessages.push(msg);
+            }
+        }
+        if (flushed > 0 || this.pendingMessages.length > 0) {
+            console.log(`[WebSocketWriter] flushed ${flushed}/${toFlush.length} for session ${this.sessionId || 'unknown'}, remaining=${this.pendingMessages.length}`);
+        }
     }
 
     setSessionId(sessionId) {
