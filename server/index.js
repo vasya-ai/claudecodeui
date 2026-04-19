@@ -28,9 +28,9 @@ import mime from 'mime-types';
 
 import { getProjects, getSessions, renameProject, deleteSession, deleteProject, addProjectManually, extractProjectDirectory, clearProjectDirectoryCache, searchConversations } from './projects.js';
 import { queryClaudeSDK, abortClaudeSDKSession, isClaudeSDKSessionActive, getActiveClaudeSDKSessions, resolveToolApproval, getPendingApprovalsForSession, reconnectSessionWriter } from './claude-sdk.js';
-import { spawnCursor, abortCursorSession, isCursorSessionActive, getActiveCursorSessions } from './cursor-cli.js';
-import { queryCodex, abortCodexSession, isCodexSessionActive, getActiveCodexSessions } from './openai-codex.js';
-import { spawnGemini, abortGeminiSession, isGeminiSessionActive, getActiveGeminiSessions } from './gemini-cli.js';
+import { spawnCursor, abortCursorSession, isCursorSessionActive, getActiveCursorSessions, reconnectCursorSessionWriter } from './cursor-cli.js';
+import { queryCodex, abortCodexSession, isCodexSessionActive, getActiveCodexSessions, reconnectCodexSessionWriter } from './openai-codex.js';
+import { spawnGemini, abortGeminiSession, isGeminiSessionActive, getActiveGeminiSessions, reconnectGeminiSessionWriter } from './gemini-cli.js';
 import sessionManager from './sessionManager.js';
 import gitRoutes from './routes/git.js';
 import authRoutes from './routes/auth.js';
@@ -1382,22 +1382,75 @@ wss.on('connection', (ws, request) => {
  * adapter `normalizeMessage()` to produce unified NormalizedMessage events.
  * The writer simply serialises and sends.
  */
+const WEBSOCKET_WRITER_MAX_BUFFER = 1000;
+
 class WebSocketWriter {
     constructor(ws, userId = null) {
         this.ws = ws;
         this.sessionId = null;
         this.userId = userId;
         this.isWebSocketWriter = true;  // Marker for transport detection
+        // Outgoing messages that arrived while the underlying ws was not OPEN.
+        // Flushed on updateWebSocket() once a fresh ws is attached. Stored pre-
+        // serialized so flush does not re-stringify (also captures stringify
+        // errors at send-time rather than deep in reconnect code).
+        this.pendingMessages = [];
     }
 
     send(data) {
-        if (this.ws.readyState === 1) { // WebSocket.OPEN
-            this.ws.send(JSON.stringify(data));
+        let serialized;
+        try {
+            serialized = JSON.stringify(data);
+        } catch (err) {
+            console.error('[WebSocketWriter] JSON.stringify failed, dropping message:', err?.message || err);
+            return;
         }
+        if (this.ws && this.ws.readyState === 1) { // WebSocket.OPEN
+            try {
+                this.ws.send(serialized);
+                return;
+            } catch (err) {
+                console.error('[WebSocketWriter] ws.send threw, will buffer:', err?.message || err);
+                // fall through to buffer path
+            }
+        }
+        this._bufferPush(serialized);
+    }
+
+    _bufferPush(serialized) {
+        if (this.pendingMessages.length >= WEBSOCKET_WRITER_MAX_BUFFER) {
+            this.pendingMessages.shift();
+            console.warn(`[WebSocketWriter] buffer full (${WEBSOCKET_WRITER_MAX_BUFFER}), dropping oldest for session ${this.sessionId || 'unknown'}`);
+        }
+        this.pendingMessages.push(serialized);
     }
 
     updateWebSocket(newRawWs) {
+        // Swap first so any concurrent send() during this method's synchronous
+        // run goes through the new ws, not the old one. (JS is single-threaded
+        // so no actual concurrency, but intent is clearer this way.)
         this.ws = newRawWs;
+        if (!newRawWs || newRawWs.readyState !== 1 || this.pendingMessages.length === 0) return;
+        const toFlush = this.pendingMessages;
+        this.pendingMessages = [];
+        let flushed = 0;
+        for (const msg of toFlush) {
+            if (newRawWs.readyState !== 1) {
+                // New ws closed mid-flush: keep the rest, order preserved.
+                this.pendingMessages.push(msg);
+                continue;
+            }
+            try {
+                newRawWs.send(msg);
+                flushed++;
+            } catch (err) {
+                console.error('[WebSocketWriter] send during flush failed, re-buffering:', err?.message || err);
+                this.pendingMessages.push(msg);
+            }
+        }
+        if (flushed > 0 || this.pendingMessages.length > 0) {
+            console.log(`[WebSocketWriter] flushed ${flushed}/${toFlush.length} for session ${this.sessionId || 'unknown'}, remaining=${this.pendingMessages.length}`);
+        }
     }
 
     setSessionId(sessionId) {
@@ -1424,7 +1477,6 @@ function handleChatConnection(ws, request) {
             const data = JSON.parse(message);
 
             if (data.type === 'claude-command') {
-                console.log(`[trace][session] ws RECV claude-command sessionId=${data.options?.sessionId || 'NEW'} hasImages=${!!data.options?.images?.length}`);
                 console.log('[DEBUG] User message:', data.command || '[Continue/Resume]');
                 console.log('📁 Project:', data.options?.projectPath || 'Unknown');
                 console.log('🔄 Session:', data.options?.sessionId ? 'Resume' : 'New');
@@ -1458,7 +1510,6 @@ function handleChatConnection(ws, request) {
                     cwd: data.options?.cwd
                 }, writer);
             } else if (data.type === 'abort-session') {
-                console.log(`[trace][session] ws RECV abort-session sessionId=${data.sessionId} provider=${data.provider || 'claude'}`);
                 console.log('[DEBUG] Abort session request:', data.sessionId);
                 const provider = data.provider || 'claude';
                 let success;
@@ -1499,14 +1550,16 @@ function handleChatConnection(ws, request) {
 
                 if (provider === 'cursor') {
                     isActive = isCursorSessionActive(sessionId);
+                    if (isActive) reconnectCursorSessionWriter(sessionId, ws);
                 } else if (provider === 'codex') {
                     isActive = isCodexSessionActive(sessionId);
+                    if (isActive) reconnectCodexSessionWriter(sessionId, ws);
                 } else if (provider === 'gemini') {
                     isActive = isGeminiSessionActive(sessionId);
+                    if (isActive) reconnectGeminiSessionWriter(sessionId, ws);
                 } else {
                     // Use Claude Agents SDK
                     isActive = isClaudeSDKSessionActive(sessionId);
-                    console.log(`[trace][session] ws RECV check-session-status sessionId=${sessionId} isActive=${isActive}`);
                     if (isActive) {
                         // Reconnect the session's writer to the new WebSocket so
                         // subsequent SDK output flows to the refreshed client.
@@ -1553,8 +1606,7 @@ function handleChatConnection(ws, request) {
         }
     });
 
-    ws.on('close', (code, reason) => {
-        console.log(`[trace][session] ws CLOSE code=${code} reason=${reason?.toString?.() || ''} activeSdkSessions=${getActiveClaudeSDKSessions().length}`);
+    ws.on('close', () => {
         console.log('🔌 Chat client disconnected');
         // Remove from connected clients
         connectedClients.delete(ws);

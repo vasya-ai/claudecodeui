@@ -13,6 +13,9 @@ import { createNormalizedMessage } from './providers/types.js';
 import { getStatusChecker } from './providers/registry.js';
 
 let activeGeminiProcesses = new Map(); // Track active processes by session ID
+// Parallel map: sessionId -> writer, so reconnectGeminiSessionWriter can swap
+// the client ws without changing the shape of activeGeminiProcesses.
+const activeGeminiWriters = new Map();
 
 async function spawnGemini(command, options = {}, ws) {
     const { sessionId, projectPath, cwd, toolsSettings, permissionMode, images, sessionSummary } = options;
@@ -212,6 +215,7 @@ async function spawnGemini(command, options = {}, ws) {
         // Store process reference for potential abort
         const processKey = capturedSessionId || sessionId || Date.now().toString();
         activeGeminiProcesses.set(processKey, geminiProcess);
+        activeGeminiWriters.set(processKey, ws);
 
         // Store sessionId on the process object for debugging
         geminiProcess.sessionId = processKey;
@@ -309,6 +313,11 @@ async function spawnGemini(command, options = {}, ws) {
                 if (processKey !== capturedSessionId) {
                     activeGeminiProcesses.delete(processKey);
                     activeGeminiProcesses.set(capturedSessionId, geminiProcess);
+                    const existingWriter = activeGeminiWriters.get(processKey);
+                    if (existingWriter) {
+                      activeGeminiWriters.delete(processKey);
+                      activeGeminiWriters.set(capturedSessionId, existingWriter);
+                    }
                 }
 
                 ws.setSessionId && typeof ws.setSessionId === 'function' && ws.setSessionId(capturedSessionId);
@@ -359,6 +368,7 @@ async function spawnGemini(command, options = {}, ws) {
             // Clean up process reference
             const finalSessionId = capturedSessionId || sessionId || processKey;
             activeGeminiProcesses.delete(finalSessionId);
+            activeGeminiWriters.delete(finalSessionId);
 
             // Save assistant response to session if we have one
             if (finalSessionId && assistantBlocks.length > 0) {
@@ -403,6 +413,7 @@ async function spawnGemini(command, options = {}, ws) {
             // Clean up process reference on error
             const finalSessionId = capturedSessionId || sessionId || processKey;
             activeGeminiProcesses.delete(finalSessionId);
+            activeGeminiWriters.delete(finalSessionId);
 
             // Check if Gemini CLI is installed for a clearer error message
             const installed = getStatusChecker('gemini')?.checkInstalled() ?? true;
@@ -445,6 +456,7 @@ function abortGeminiSession(sessionId) {
                 }
             }, 2000); // Wait 2 seconds before force kill
 
+            activeGeminiWriters.delete(processKey);
             return true;
         } catch (error) {
             return false;
@@ -461,9 +473,31 @@ function getActiveGeminiSessions() {
     return Array.from(activeGeminiProcesses.keys());
 }
 
+/**
+ * Reconnect a session's writer to a new raw WebSocket.
+ * Mirrors claude-sdk.js::reconnectSessionWriter. Called when the client's
+ * WebSocket reconnects while the Gemini CLI process is still streaming so
+ * buffered events in the writer can flush to the live socket.
+ * @param {string} sessionId
+ * @param {Object} newRawWs - new raw ws instance
+ * @returns {boolean} true on successful swap
+ */
+function reconnectGeminiSessionWriter(sessionId, newRawWs) {
+    const writer = activeGeminiWriters.get(sessionId);
+    if (!writer?.updateWebSocket) return false;
+    try {
+        writer.updateWebSocket(newRawWs);
+    } catch (err) {
+        console.error(`[Gemini] reconnectSessionWriter failed for ${sessionId}:`, err?.message || err);
+        return false;
+    }
+    return true;
+}
+
 export {
     spawnGemini,
     abortGeminiSession,
+    reconnectGeminiSessionWriter,
     isGeminiSessionActive,
     getActiveGeminiSessions
 };
