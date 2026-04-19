@@ -106,12 +106,38 @@ function createEmptySlot(): SessionSlot {
  * Compute merged messages: server + realtime, deduped by id.
  * Server messages take priority (they're the persisted source of truth).
  * Realtime messages that aren't yet in server stay (in-flight streaming).
+ *
+ * Extra dedup: locally-generated optimistic user bubbles (id prefix `local_`)
+ * carry a client-side id that will never match the server's uuid-based id for
+ * the same user message. Without content-based dedup the optimistic bubble
+ * would linger in realtime forever and render as a duplicate — often
+ * positioned mid-stream (between assistant tool uses and the final text)
+ * because it gets appended after anything still missing from server. Drop
+ * any such `local_` user-text whose content already exists as a user-text
+ * in serverMessages.
  */
 function computeMerged(server: NormalizedMessage[], realtime: NormalizedMessage[]): NormalizedMessage[] {
   if (realtime.length === 0) return server;
   if (server.length === 0) return realtime;
   const serverIds = new Set(server.map(m => m.id));
-  const extra = realtime.filter(m => !serverIds.has(m.id));
+  const serverUserContents = new Set<string>();
+  for (const m of server) {
+    if (m.kind === 'text' && (m as any).role === 'user') {
+      const c = typeof (m as any).content === 'string' ? (m as any).content : '';
+      if (c) serverUserContents.add(c);
+    }
+  }
+  const extra = realtime.filter(m => {
+    if (serverIds.has(m.id)) return false;
+    if (
+      typeof m.id === 'string' && m.id.startsWith('local_') &&
+      m.kind === 'text' && (m as any).role === 'user'
+    ) {
+      const c = typeof (m as any).content === 'string' ? (m as any).content : '';
+      if (c && serverUserContents.has(c)) return false;
+    }
+    return true;
+  });
   if (extra.length === 0) return server;
   return [...server, ...extra];
 }
