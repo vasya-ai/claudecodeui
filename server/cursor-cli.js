@@ -13,6 +13,27 @@ let activeCursorProcesses = new Map(); // Track active processes by session ID
 // the client ws without changing the shape of activeCursorProcesses.
 const activeCursorWriters = new Map();
 
+// Grace window after `complete`/`error` during which session entries are kept
+// so a reconnecting client's check-session-status can still trigger
+// reconnectCursorSessionWriter and flush any messages WebSocketWriter buffered
+// while the original ws was not OPEN.
+const POST_COMPLETION_GRACE_MS = parseInt(process.env.CURSOR_POST_COMPLETION_GRACE_MS, 10) || 15000;
+
+function scheduleCursorCleanup(sessionId) {
+  if (!sessionId) return;
+  const procSnapshot = activeCursorProcesses.get(sessionId);
+  const writerSnapshot = activeCursorWriters.get(sessionId);
+  if (!procSnapshot && !writerSnapshot) return;
+  setTimeout(() => {
+    if (activeCursorProcesses.get(sessionId) === procSnapshot) {
+      activeCursorProcesses.delete(sessionId);
+    }
+    if (activeCursorWriters.get(sessionId) === writerSnapshot) {
+      activeCursorWriters.delete(sessionId);
+    }
+  }, POST_COMPLETION_GRACE_MS).unref?.();
+}
+
 const WORKSPACE_TRUST_PATTERNS = [
   /workspace trust required/i,
   /do you trust the contents of this directory/i,
@@ -266,8 +287,6 @@ async function spawnCursor(command, options = {}, ws) {
         console.log(`Cursor CLI process exited with code ${code}`);
 
         const finalSessionId = capturedSessionId || sessionId || processKey;
-        activeCursorProcesses.delete(finalSessionId);
-        activeCursorWriters.delete(finalSessionId);
 
         // Flush any final unterminated stdout line before completion handling.
         if (stdoutLineBuffer.trim()) {
@@ -282,11 +301,23 @@ async function spawnCursor(command, options = {}, ws) {
           !args.includes('--trust')
         ) {
           hasRetriedWithTrust = true;
+          // Trust retry spawns a replacement process that will reuse the
+          // same session id, so remove entries synchronously rather than
+          // via the grace-scheduler (no buffered-flush concern here).
+          activeCursorProcesses.delete(finalSessionId);
+          activeCursorWriters.delete(finalSessionId);
           runCursorProcess([...args, '--trust'], 'trust-retry');
           return;
         }
 
+        // Send `complete` BEFORE scheduling active-map cleanup so that
+        // reconnectCursorSessionWriter can still locate the session during the
+        // grace window and flush any messages WebSocketWriter buffered while
+        // the client's ws was not OPEN at the moment of send. See
+        // scheduleCursorCleanup() at the top of the file.
         ws.send(createNormalizedMessage({ kind: 'complete', exitCode: code, isNewSession: !sessionId && !!command, sessionId: finalSessionId, provider: 'cursor' }));
+
+        scheduleCursorCleanup(finalSessionId);
 
         if (code === 0) {
           notifyTerminalState({ code });
@@ -301,10 +332,7 @@ async function spawnCursor(command, options = {}, ws) {
       cursorProcess.on('error', (error) => {
         console.error('Cursor CLI process error:', error);
 
-        // Clean up process reference on error
         const finalSessionId = capturedSessionId || sessionId || processKey;
-        activeCursorProcesses.delete(finalSessionId);
-        activeCursorWriters.delete(finalSessionId);
 
         // Check if Cursor CLI is installed for a clearer error message
         const installed = getStatusChecker('cursor')?.checkInstalled() ?? true;
@@ -312,7 +340,12 @@ async function spawnCursor(command, options = {}, ws) {
           ? 'Cursor CLI is not installed. Please install it from https://cursor.com'
           : error.message;
 
+        // Send error BEFORE scheduling cleanup — same grace-window rationale
+        // as the close handler above.
         ws.send(createNormalizedMessage({ kind: 'error', content: errorContent, sessionId: capturedSessionId || sessionId || null, provider: 'cursor' }));
+
+        scheduleCursorCleanup(finalSessionId);
+
         notifyTerminalState({ error });
 
         settleOnce(() => reject(error));

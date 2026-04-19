@@ -22,6 +22,27 @@ import { getStatusChecker } from './providers/registry.js';
 // Track active sessions
 const activeCodexSessions = new Map();
 
+// Grace window after `complete`/`error` during which session status stays
+// 'running' so a reconnecting client's check-session-status can still trigger
+// reconnectCodexSessionWriter (keyed off isCodexSessionActive, which returns
+// true only for 'running') and flush any messages WebSocketWriter buffered
+// while the original ws was not OPEN.
+const POST_COMPLETION_GRACE_MS = parseInt(process.env.CODEX_POST_COMPLETION_GRACE_MS, 10) || 15000;
+
+function scheduleCodexStatusFlip(sessionId, finalStatus) {
+  if (!sessionId) return;
+  const snapshot = activeCodexSessions.get(sessionId);
+  if (!snapshot) return;
+  setTimeout(() => {
+    const current = activeCodexSessions.get(sessionId);
+    // Only flip if this is still the same session AND it's still in the
+    // 'running' holding state (i.e. no new turn overwrote it or aborted it).
+    if (current === snapshot && current.status === 'running') {
+      current.status = finalStatus;
+    }
+  }, POST_COMPLETION_GRACE_MS).unref?.();
+}
+
 /**
  * Transform Codex SDK event to WebSocket message format
  * @param {object} event - SDK event
@@ -330,11 +351,17 @@ export async function queryCodex(command, options = {}, ws) {
     }
 
   } finally {
-    // Update session status
+    // Keep status='running' for a grace window, then flip to 'completed'.
+    // See scheduleCodexStatusFlip for rationale (reconnect buffer flush).
+    // Aborts flip immediately because the client explicitly tore down.
     if (currentSessionId) {
       const session = activeCodexSessions.get(currentSessionId);
       if (session) {
-        session.status = session.status === 'aborted' ? 'aborted' : 'completed';
+        if (session.status === 'aborted') {
+          // leave as-is
+        } else {
+          scheduleCodexStatusFlip(currentSessionId, 'completed');
+        }
       }
     }
   }
