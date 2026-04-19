@@ -270,9 +270,13 @@ export function useSessionStore() {
   /**
    * Append a realtime (WebSocket) message to the correct session slot.
    * This works regardless of which session is actively viewed.
+   * Dedupes by id against existing realtime + server messages so the same
+   * message arriving twice (e.g. from a reconnect replay) renders once.
    */
   const appendRealtime = useCallback((sessionId: string, msg: NormalizedMessage) => {
     const slot = getSlot(sessionId);
+    if (slot.realtimeMessages.some(m => m.id === msg.id)) return;
+    if (slot.serverMessages.some(m => m.id === msg.id)) return;
     let updated = [...slot.realtimeMessages, msg];
     if (updated.length > MAX_REALTIME_MESSAGES) {
       updated = updated.slice(-MAX_REALTIME_MESSAGES);
@@ -288,7 +292,12 @@ export function useSessionStore() {
   const appendRealtimeBatch = useCallback((sessionId: string, msgs: NormalizedMessage[]) => {
     if (msgs.length === 0) return;
     const slot = getSlot(sessionId);
-    let updated = [...slot.realtimeMessages, ...msgs];
+    const existingIds = new Set<string>();
+    for (const m of slot.realtimeMessages) existingIds.add(m.id);
+    for (const m of slot.serverMessages) existingIds.add(m.id);
+    const fresh = msgs.filter(m => !existingIds.has(m.id));
+    if (fresh.length === 0) return;
+    let updated = [...slot.realtimeMessages, ...fresh];
     if (updated.length > MAX_REALTIME_MESSAGES) {
       updated = updated.slice(-MAX_REALTIME_MESSAGES);
     }
