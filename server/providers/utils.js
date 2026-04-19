@@ -27,3 +27,16 @@ export const INTERNAL_CONTENT_PREFIXES = Object.freeze([
 export function isInternalContent(content) {
   return INTERNAL_CONTENT_PREFIXES.some(prefix => content.startsWith(prefix));
 }
+
+/**
+ * Strip the image-note framing the server appends to user commands before
+ * sending them to the Claude SDK (see claude-sdk.js::handleImages). The note
+ * looks like "\n\n[Images provided at the following paths:]\n1. /path" and is
+ * internal plumbing, not user-authored text — it should not appear in the UI.
+ * @param {string} content
+ * @returns {string}
+ */
+export function stripImageNote(content) {
+  if (!content) return content;
+  return content.replace(/\n\n\[Images provided at the following paths:\][\s\S]*$/, '');
+}

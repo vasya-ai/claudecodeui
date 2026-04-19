@@ -656,6 +656,12 @@ async function queryClaudeSDK(command, options = {}, ws) {
       // Use adapter to normalize SDK events into NormalizedMessage[]
       const normalized = claudeAdapter.normalizeMessage(transformedMessage, sid);
       for (const msg of normalized) {
+        // Skip echoed user text in realtime: the client already shows an
+        // optimistic bubble for the submitted message. The echoed copy
+        // carries internal framing (image paths, thinking-mode prefixes)
+        // the user didn't type. History fetch keeps it (via fetchHistory)
+        // for session resume where no optimistic bubble exists.
+        if (msg.kind === 'text' && msg.role === 'user') continue;
         // Preserve parentToolUseId from SDK wrapper for subagent tool grouping
         if (transformedMessage.parentToolUseId && !msg.parentToolUseId) {
           msg.parentToolUseId = transformedMessage.parentToolUseId;
