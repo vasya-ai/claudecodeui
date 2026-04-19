@@ -40,3 +40,28 @@ export function stripImageNote(content) {
   if (!content) return content;
   return content.replace(/\n\n\[Images provided at the following paths:\][\s\S]*$/, '');
 }
+
+/**
+ * Strip the thinking-mode prefix the composer prepends when the user selects
+ * a Think/Ultrathink mode. Prefixes come from
+ * src/components/chat/constants/thinkingModes.ts and are appended as
+ * `${prefix}: ${userText}` before being sent to the SDK. Claude Code treats
+ * these as budget-trigger magic words, never as user-authored text, so they
+ * should not render in the user's chat bubble.
+ * @param {string} content
+ * @returns {string}
+ */
+export function stripThinkingPrefix(content) {
+  if (!content) return content;
+  return content.replace(/^(think harder|think hard|ultrathink|think): /, '');
+}
+
+/**
+ * Apply all internal framing strippers (image note, thinking prefix).
+ * @param {string} content
+ * @returns {string}
+ */
+export function stripInternalFraming(content) {
+  if (!content) return content;
+  return stripThinkingPrefix(stripImageNote(content));
+}
