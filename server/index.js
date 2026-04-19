@@ -1477,7 +1477,6 @@ function handleChatConnection(ws, request) {
             const data = JSON.parse(message);
 
             if (data.type === 'claude-command') {
-                console.log(`[trace][session] ws RECV claude-command sessionId=${data.options?.sessionId || 'NEW'} hasImages=${!!data.options?.images?.length}`);
                 console.log('[DEBUG] User message:', data.command || '[Continue/Resume]');
                 console.log('📁 Project:', data.options?.projectPath || 'Unknown');
                 console.log('🔄 Session:', data.options?.sessionId ? 'Resume' : 'New');
@@ -1511,7 +1510,6 @@ function handleChatConnection(ws, request) {
                     cwd: data.options?.cwd
                 }, writer);
             } else if (data.type === 'abort-session') {
-                console.log(`[trace][session] ws RECV abort-session sessionId=${data.sessionId} provider=${data.provider || 'claude'}`);
                 console.log('[DEBUG] Abort session request:', data.sessionId);
                 const provider = data.provider || 'claude';
                 let success;
@@ -1562,7 +1560,6 @@ function handleChatConnection(ws, request) {
                 } else {
                     // Use Claude Agents SDK
                     isActive = isClaudeSDKSessionActive(sessionId);
-                    console.log(`[trace][session] ws RECV check-session-status sessionId=${sessionId} isActive=${isActive}`);
                     if (isActive) {
                         // Reconnect the session's writer to the new WebSocket so
                         // subsequent SDK output flows to the refreshed client.
@@ -1609,8 +1606,7 @@ function handleChatConnection(ws, request) {
         }
     });
 
-    ws.on('close', (code, reason) => {
-        console.log(`[trace][session] ws CLOSE code=${code} reason=${reason?.toString?.() || ''} activeSdkSessions=${getActiveClaudeSDKSessions().length}`);
+    ws.on('close', () => {
         console.log('🔌 Chat client disconnected');
         // Remove from connected clients
         connectedClients.delete(ws);
