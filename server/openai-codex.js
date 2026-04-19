@@ -240,7 +240,8 @@ export async function queryCodex(command, options = {}, ws) {
       codex,
       status: 'running',
       abortController,
-      startedAt: new Date().toISOString()
+      startedAt: new Date().toISOString(),
+      writer: ws
     });
 
     // Send session created event
@@ -369,6 +370,27 @@ export function abortCodexSession(sessionId) {
 export function isCodexSessionActive(sessionId) {
   const session = activeCodexSessions.get(sessionId);
   return session?.status === 'running';
+}
+
+/**
+ * Reconnect a session's writer to a new raw WebSocket.
+ * Mirrors claude-sdk.js::reconnectSessionWriter. Called when the client's
+ * WebSocket reconnects while the Codex turn is still streaming so buffered
+ * events can flush to the live socket.
+ * @param {string} sessionId
+ * @param {Object} newRawWs - new raw ws instance
+ * @returns {boolean} true on successful swap
+ */
+export function reconnectCodexSessionWriter(sessionId, newRawWs) {
+  const session = activeCodexSessions.get(sessionId);
+  if (!session?.writer?.updateWebSocket) return false;
+  try {
+    session.writer.updateWebSocket(newRawWs);
+  } catch (err) {
+    console.error(`[Codex] reconnectSessionWriter failed for ${sessionId}:`, err?.message || err);
+    return false;
+  }
+  return true;
 }
 
 /**

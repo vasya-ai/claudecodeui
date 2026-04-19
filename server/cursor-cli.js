@@ -9,6 +9,9 @@ import { getStatusChecker } from './providers/registry.js';
 const spawnFunction = process.platform === 'win32' ? crossSpawn : spawn;
 
 let activeCursorProcesses = new Map(); // Track active processes by session ID
+// Parallel map: sessionId -> writer, so reconnectCursorSessionWriter can swap
+// the client ws without changing the shape of activeCursorProcesses.
+const activeCursorWriters = new Map();
 
 const WORKSPACE_TRUST_PATTERNS = [
   /workspace trust required/i,
@@ -130,6 +133,7 @@ async function spawnCursor(command, options = {}, ws) {
       });
 
       activeCursorProcesses.set(processKey, cursorProcess);
+      activeCursorWriters.set(processKey, ws);
 
       const shouldSuppressForTrustRetry = (text) => {
         if (hasRetriedWithTrust || args.includes('--trust')) {
@@ -165,6 +169,11 @@ async function spawnCursor(command, options = {}, ws) {
                   if (processKey !== capturedSessionId) {
                     activeCursorProcesses.delete(processKey);
                     activeCursorProcesses.set(capturedSessionId, cursorProcess);
+                    const existingWriter = activeCursorWriters.get(processKey);
+                    if (existingWriter) {
+                      activeCursorWriters.delete(processKey);
+                      activeCursorWriters.set(capturedSessionId, existingWriter);
+                    }
                   }
 
                   // Set session ID on writer (for API endpoint compatibility)
@@ -258,6 +267,7 @@ async function spawnCursor(command, options = {}, ws) {
 
         const finalSessionId = capturedSessionId || sessionId || processKey;
         activeCursorProcesses.delete(finalSessionId);
+        activeCursorWriters.delete(finalSessionId);
 
         // Flush any final unterminated stdout line before completion handling.
         if (stdoutLineBuffer.trim()) {
@@ -294,6 +304,7 @@ async function spawnCursor(command, options = {}, ws) {
         // Clean up process reference on error
         const finalSessionId = capturedSessionId || sessionId || processKey;
         activeCursorProcesses.delete(finalSessionId);
+        activeCursorWriters.delete(finalSessionId);
 
         // Check if Cursor CLI is installed for a clearer error message
         const installed = getStatusChecker('cursor')?.checkInstalled() ?? true;
@@ -321,6 +332,7 @@ function abortCursorSession(sessionId) {
     console.log(`Aborting Cursor session: ${sessionId}`);
     process.kill('SIGTERM');
     activeCursorProcesses.delete(sessionId);
+    activeCursorWriters.delete(sessionId);
     return true;
   }
   return false;
@@ -334,9 +346,31 @@ function getActiveCursorSessions() {
   return Array.from(activeCursorProcesses.keys());
 }
 
+/**
+ * Reconnect a session's writer to a new raw WebSocket.
+ * Mirrors claude-sdk.js::reconnectSessionWriter. Called when the client's
+ * WebSocket reconnects while the Cursor CLI process is still streaming so
+ * buffered events in the writer can flush to the live socket.
+ * @param {string} sessionId
+ * @param {Object} newRawWs - new raw ws instance
+ * @returns {boolean} true on successful swap
+ */
+function reconnectCursorSessionWriter(sessionId, newRawWs) {
+  const writer = activeCursorWriters.get(sessionId);
+  if (!writer?.updateWebSocket) return false;
+  try {
+    writer.updateWebSocket(newRawWs);
+  } catch (err) {
+    console.error(`[Cursor] reconnectSessionWriter failed for ${sessionId}:`, err?.message || err);
+    return false;
+  }
+  return true;
+}
+
 export {
   spawnCursor,
   abortCursorSession,
+  reconnectCursorSessionWriter,
   isCursorSessionActive,
   getActiveCursorSessions
 };
