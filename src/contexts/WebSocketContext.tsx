@@ -36,8 +36,11 @@ const useWebSocketProviderState = (): WebSocketContextType => {
   const { token } = useAuth();
 
   useEffect(() => {
+    // Reset on (re)mount so StrictMode remounts and token changes can
+    // reconnect — cleanup flips this to true but never back.
+    unmountedRef.current = false;
     connect();
-    
+
     return () => {
       unmountedRef.current = true;
       if (reconnectTimeoutRef.current) {
