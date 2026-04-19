@@ -7,7 +7,7 @@
 
 import { getSessionMessages } from '../../projects.js';
 import { createNormalizedMessage, generateMessageId } from '../types.js';
-import { isInternalContent } from '../utils.js';
+import { isInternalContent, stripInternalFraming } from '../utils.js';
 
 const PROVIDER = 'claude';
 
@@ -53,7 +53,7 @@ export function normalizeMessage(raw, sessionId) {
           }));
         } else if (part.type === 'text') {
           // Regular text parts from user
-          const text = part.text || '';
+          const text = stripInternalFraming(part.text || '');
           if (text && !isInternalContent(text)) {
             messages.push(createNormalizedMessage({
               id: `${baseId}_text`,
@@ -70,11 +70,13 @@ export function normalizeMessage(raw, sessionId) {
 
       // If no text parts were found, check if it's a pure user message
       if (messages.length === 0) {
-        const textParts = raw.message.content
-          .filter(p => p.type === 'text')
-          .map(p => p.text)
-          .filter(Boolean)
-          .join('\n');
+        const textParts = stripInternalFraming(
+          raw.message.content
+            .filter(p => p.type === 'text')
+            .map(p => p.text)
+            .filter(Boolean)
+            .join('\n')
+        );
         if (textParts && !isInternalContent(textParts)) {
           messages.push(createNormalizedMessage({
             id: `${baseId}_text`,
@@ -88,7 +90,7 @@ export function normalizeMessage(raw, sessionId) {
         }
       }
     } else if (typeof raw.message.content === 'string') {
-      const text = raw.message.content;
+      const text = stripInternalFraming(raw.message.content);
       if (text && !isInternalContent(text)) {
         messages.push(createNormalizedMessage({
           id: baseId,

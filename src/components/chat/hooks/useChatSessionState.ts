@@ -148,17 +148,21 @@ export function useChatSessionState({
     sessionStore.setActiveSession(activeSessionId);
   }
 
-  // When a real session ID arrives and we have a pending user message, flush it to the store
-  const prevActiveSessionRef = useRef<string | null>(null);
-  if (activeSessionId && activeSessionId !== prevActiveSessionRef.current && pendingUserMessage) {
+  // When a real session ID arrives and we have a pending user message, flush it to the store.
+  // Track the pending object itself (not just sessionId) so a resurrected state value does not
+  // re-flush into every session the user subsequently switches to.
+  const flushedPendingRef = useRef<ChatMessage | null>(null);
+  useEffect(() => {
+    if (!activeSessionId || !pendingUserMessage) return;
+    if (flushedPendingRef.current === pendingUserMessage) return;
+    flushedPendingRef.current = pendingUserMessage;
     const prov = (localStorage.getItem('selected-provider') as LLMProvider) || 'claude';
     const normalized = chatMessageToNormalized(pendingUserMessage, activeSessionId, prov);
     if (normalized) {
       sessionStore.appendRealtime(activeSessionId, normalized);
     }
     setPendingUserMessage(null);
-  }
-  prevActiveSessionRef.current = activeSessionId;
+  }, [activeSessionId, pendingUserMessage, sessionStore]);
 
   const storeMessages = activeSessionId ? sessionStore.getMessages(activeSessionId) : [];
 
@@ -185,7 +189,9 @@ export function useChatSessionState({
 
   const addMessage = useCallback((msg: ChatMessage) => {
     if (!activeSessionId) {
-      // No session yet — show as pending until the backend creates one
+      // No session yet — show as pending until the backend creates one.
+      // Reset the flushed-pending marker so the next session switch will flush this new object.
+      flushedPendingRef.current = null;
       setPendingUserMessage(msg);
       return;
     }

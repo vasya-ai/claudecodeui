@@ -151,6 +151,7 @@ export function useChatComposerState({
     ((event: FormEvent<HTMLFormElement> | MouseEvent | TouchEvent | KeyboardEvent<HTMLTextAreaElement>) => Promise<void>) | null
   >(null);
   const inputValueRef = useRef(input);
+  const isSubmittingRef = useRef(false);
 
   const handleBuiltInCommand = useCallback(
     (result: CommandExecutionResult) => {
@@ -462,6 +463,13 @@ export function useChatComposerState({
       event: FormEvent<HTMLFormElement> | MouseEvent | TouchEvent | KeyboardEvent<HTMLTextAreaElement>,
     ) => {
       event.preventDefault();
+      // Reentry guard: the send button binds both onMouseDown/onTouchStart AND
+      // lives inside a <form onSubmit>, so a single click can trigger handleSubmit
+      // twice (mousedown → then click → form submit). isLoading can't catch this
+      // because setIsLoading runs after an async image upload await.
+      if (isSubmittingRef.current) return;
+      isSubmittingRef.current = true;
+      try {
       const currentInput = inputValueRef.current;
       if (!currentInput.trim() || isLoading || !selectedProject) {
         return;
@@ -670,6 +678,9 @@ export function useChatComposerState({
       }
 
       safeLocalStorage.removeItem(`draft_input_${selectedProject.name}`);
+      } finally {
+        isSubmittingRef.current = false;
+      }
     },
     [
       selectedSession,
