@@ -663,7 +663,14 @@ async function queryClaudeSDK(command, options = {}, ws) {
 
     // Process streaming messages
     console.log('Starting async generator loop for session:', capturedSessionId || 'NEW');
+    // TEMP trace — tracking the intermittent stuck-plashka bug. Every SDK
+    // event is logged so we can see exactly what arrives (or doesn't) before
+    // the for-await loop terminates. Revert this branch once the bug is
+    // caught once with full console output.
+    let _debugMsgCount = 0;
     for await (const message of queryInstance) {
+      _debugMsgCount++;
+      console.log(`[debug] SDK msg #${_debugMsgCount} type=${message?.type} subtype=${message?.subtype || ''}`);
       // Capture session ID from first message
       if (message.session_id && !capturedSessionId) {
 
@@ -726,6 +733,7 @@ async function queryClaudeSDK(command, options = {}, ws) {
     // still registered → writer swaps → buffer flushes. Identity guard below
     // prevents a later queryClaudeSDK() for the same sessionId from being
     // clobbered by an in-flight grace timer.
+    console.log(`[debug] for-await exited after ${_debugMsgCount} msgs; sending complete for session`, capturedSessionId);
     ws.send(createNormalizedMessage({ kind: 'complete', exitCode: 0, isNewSession: !sessionId && !!command, sessionId: capturedSessionId, provider: 'claude' }));
 
     scheduleSessionCleanup(capturedSessionId);
