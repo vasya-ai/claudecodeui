@@ -223,6 +223,19 @@ function mapCliOptionsToSDK(options = {}) {
     sdkOptions.resume = sessionId;
   }
 
+  // Map effort level. SDK v0.2.59 TypeScript declares `Options.effort` as
+  // `'low' | 'medium' | 'high' | 'max'`, but the runtime does a pure
+  // pass-through `u.push("--effort", this.options.effort)` — the CLI accepts
+  // all 5 levels including `xhigh`. Do NOT narrow the set here; let CLI be
+  // the source of truth. Client already validates against the known set
+  // before sending, so unexpected values should not reach us.
+  if (options.effort) {
+    sdkOptions.effort = options.effort;
+  }
+
+  // TEMP trace — removed in a follow-up cleanup commit before merge.
+  console.log('[effort] spawning claude with effort=', sdkOptions.effort ?? '(unset/default)');
+
   return sdkOptions;
 }
 

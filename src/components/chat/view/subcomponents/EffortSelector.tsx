@@ -1,17 +1,17 @@
 import { useState, useRef, useEffect, useCallback, type CSSProperties } from 'react';
 import { createPortal } from 'react-dom';
-import { Brain, X } from 'lucide-react';
+import { Zap, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import { thinkingModes } from '../../constants/thinkingModes';
+import { effortLevels } from '../../constants/effortLevels';
 
-type ThinkingModeSelectorProps = {
-  selectedMode: string;
-  onModeChange: (modeId: string) => void;
+type EffortSelectorProps = {
+  selectedEffort: string;
+  onEffortChange: (effortId: string) => void;
   onClose?: () => void;
   className?: string;
 };
 
-function ThinkingModeSelector({ selectedMode, onModeChange, onClose, className = '' }: ThinkingModeSelectorProps) {
+function EffortSelector({ selectedEffort, onEffortChange, onClose, className = '' }: EffortSelectorProps) {
   const { t } = useTranslation('chat');
   const [isOpen, setIsOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -19,21 +19,11 @@ function ThinkingModeSelector({ selectedMode, onModeChange, onClose, className =
   const dropdownRef = useRef<HTMLDivElement>(null);
   const [dropdownStyle, setDropdownStyle] = useState<CSSProperties | null>(null);
 
-  // Mapping from mode ID to translation key
-  const modeKeyMap: Record<string, string> = {
-    'think-hard': 'thinkHard',
-    'think-harder': 'thinkHarder'
-  };
-  // Create translated modes for display
-  const translatedModes = thinkingModes.map(mode => {
-    const modeKey = modeKeyMap[mode.id] || mode.id;
-    return {
-      ...mode,
-      name: t(`thinkingMode.modes.${modeKey}.name`),
-      description: t(`thinkingMode.modes.${modeKey}.description`),
-      prefix: t(`thinkingMode.modes.${modeKey}.prefix`)
-    };
-  });
+  const translatedLevels = effortLevels.map(level => ({
+    ...level,
+    name: t(`effort.levels.${level.id}.name`),
+    description: t(`effort.levels.${level.id}.description`),
+  }));
 
   const closeDropdown = useCallback(() => {
     setIsOpen(false);
@@ -129,8 +119,11 @@ function ThinkingModeSelector({ selectedMode, onModeChange, onClose, className =
     };
   }, [isOpen, closeDropdown]);
 
-  const currentMode = translatedModes.find(mode => mode.id === selectedMode) || translatedModes[0];
-  const IconComponent = currentMode.icon || Brain;
+  const currentLevel =
+    translatedLevels.find(level => level.id === selectedEffort) ||
+    translatedLevels.find(level => level.id === 'high') ||
+    translatedLevels[0];
+  const IconComponent = currentLevel.icon || Zap;
 
   return (
     <div className={`relative ${className}`} ref={containerRef}>
@@ -145,15 +138,12 @@ function ThinkingModeSelector({ selectedMode, onModeChange, onClose, className =
 
           setIsOpen(true);
         }}
-        className={`flex h-10 w-10 items-center justify-center rounded-full transition-all duration-200 sm:h-10 sm:w-10 ${selectedMode === 'none'
-            ? 'bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600'
-            : 'bg-blue-100 hover:bg-blue-200 dark:bg-blue-900 dark:hover:bg-blue-800'
-          }`}
-        title={t('thinkingMode.buttonTitle', { mode: currentMode.name })}
+        className="flex h-10 w-10 items-center justify-center rounded-full bg-indigo-100 transition-all duration-200 hover:bg-indigo-200 dark:bg-indigo-900 dark:hover:bg-indigo-800 sm:h-10 sm:w-10"
+        title={t('effort.buttonTitle', { level: currentLevel.name })}
         aria-haspopup="dialog"
         aria-expanded={isOpen}
       >
-        <IconComponent className={`h-5 w-5 ${currentMode.color}`} />
+        <IconComponent className={`h-5 w-5 ${currentLevel.color}`} />
       </button>
 
       {isOpen && typeof document !== 'undefined' && createPortal(
@@ -167,7 +157,7 @@ function ThinkingModeSelector({ selectedMode, onModeChange, onClose, className =
           <div className="border-b border-gray-200 p-3 dark:border-gray-700">
             <div className="flex items-center justify-between">
               <h3 className="text-sm font-semibold text-gray-900 dark:text-white">
-                {t('thinkingMode.selector.title')}
+                {t('effort.selector.title')}
               </h3>
               <button
                 type="button"
@@ -178,50 +168,48 @@ function ThinkingModeSelector({ selectedMode, onModeChange, onClose, className =
               </button>
             </div>
             <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-              {t('thinkingMode.selector.description')}
+              {t('effort.selector.description')}
             </p>
           </div>
 
           <div className="min-h-0 overflow-y-auto py-1">
-            {translatedModes.map((mode) => {
-              const ModeIcon = mode.icon;
-              const isSelected = mode.id === selectedMode;
+            {translatedLevels.map((level) => {
+              const LevelIcon = level.icon;
+              const isSelected = level.id === selectedEffort;
 
               return (
                 <button
-                  key={mode.id}
+                  key={level.id}
                   type="button"
                   onClick={() => {
-                    onModeChange(mode.id);
+                    onEffortChange(level.id);
                     closeDropdown();
                   }}
                   className={`w-full px-4 py-3 text-left transition-colors hover:bg-gray-50 dark:hover:bg-gray-700 ${isSelected ? 'bg-gray-50 dark:bg-gray-700' : ''
                     }`}
                 >
                   <div className="flex items-start gap-3">
-                    <div className={`mt-0.5 ${mode.icon ? mode.color : 'text-gray-400'}`}>
-                      {ModeIcon ? <ModeIcon className="h-5 w-5" /> : <div className="h-5 w-5" />}
+                    <div className={`mt-0.5 ${level.color}`}>
+                      <LevelIcon className="h-5 w-5" />
                     </div>
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2">
                         <span className={`text-sm font-medium ${isSelected ? 'text-gray-900 dark:text-white' : 'text-gray-700 dark:text-gray-300'
                           }`}>
-                          {mode.name}
+                          {level.name}
                         </span>
                         {isSelected && (
                           <span className="rounded bg-blue-100 px-2 py-0.5 text-xs text-blue-700 dark:bg-blue-900 dark:text-blue-300">
-                            {t('thinkingMode.selector.active')}
+                            {t('effort.selector.active')}
                           </span>
                         )}
                       </div>
                       <p className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
-                        {mode.description}
+                        {level.description}
                       </p>
-                      {mode.prefix && (
-                        <code className="mt-1 inline-block rounded bg-gray-100 px-1.5 py-0.5 text-xs dark:bg-gray-700">
-                          {mode.prefix}
-                        </code>
-                      )}
+                      <code className="mt-1 inline-block rounded bg-gray-100 px-1.5 py-0.5 text-xs dark:bg-gray-700">
+                        --effort {level.id}
+                      </code>
                     </div>
                   </div>
                 </button>
@@ -231,7 +219,7 @@ function ThinkingModeSelector({ selectedMode, onModeChange, onClose, className =
 
           <div className="border-t border-gray-200 bg-gray-50 p-3 dark:border-gray-700 dark:bg-gray-900">
             <p className="text-xs text-gray-600 dark:text-gray-400">
-              <strong>Tip:</strong> {t('thinkingMode.selector.tip')}
+              <strong>Tip:</strong> {t('effort.selector.tip')}
             </p>
           </div>
         </div>,
@@ -241,4 +229,4 @@ function ThinkingModeSelector({ selectedMode, onModeChange, onClose, className =
   );
 }
 
-export default ThinkingModeSelector;
+export default EffortSelector;

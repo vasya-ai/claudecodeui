@@ -46,8 +46,8 @@ interface ChatComposerProps {
   provider: Provider | string;
   permissionMode: PermissionMode | string;
   onModeSwitch: () => void;
-  thinkingMode: string;
-  setThinkingMode: Dispatch<SetStateAction<string>>;
+  effort: string;
+  setEffort: (level: string) => void;
   tokenBudget: { used?: number; total?: number } | null;
   slashCommandsCount: number;
   onToggleCommandMenu: () => void;
@@ -102,8 +102,8 @@ export default function ChatComposer({
   provider,
   permissionMode,
   onModeSwitch,
-  thinkingMode,
-  setThinkingMode,
+  effort,
+  setEffort,
   tokenBudget,
   slashCommandsCount,
   onToggleCommandMenu,
@@ -192,8 +192,8 @@ export default function ChatComposer({
           permissionMode={permissionMode}
           onModeSwitch={onModeSwitch}
           provider={provider}
-          thinkingMode={thinkingMode}
-          setThinkingMode={setThinkingMode}
+          effort={effort}
+          setEffort={setEffort}
           tokenBudget={tokenBudget}
           slashCommandsCount={slashCommandsCount}
           onToggleCommandMenu={onToggleCommandMenu}
