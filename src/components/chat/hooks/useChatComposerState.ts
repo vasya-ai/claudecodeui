@@ -11,7 +11,7 @@ import type {
 } from 'react';
 import { useDropzone } from 'react-dropzone';
 import { authenticatedFetch } from '../../../utils/api';
-import { thinkingModes } from '../constants/thinkingModes';
+import { DEFAULT_EFFORT, EFFORT_STORAGE_KEY, isEffortLevel } from '../constants/effortLevels';
 import { grantClaudeToolPermission } from '../utils/chatPermissions';
 import { safeLocalStorage } from '../utils/chatStorage';
 import type {
@@ -143,7 +143,15 @@ export function useChatComposerState({
   const [uploadingImages, setUploadingImages] = useState<Map<string, number>>(new Map());
   const [imageErrors, setImageErrors] = useState<Map<string, string>>(new Map());
   const [isTextareaExpanded, setIsTextareaExpanded] = useState(false);
-  const [thinkingMode, setThinkingMode] = useState('none');
+  const [effort, setEffortState] = useState<string>(() => {
+    const raw = safeLocalStorage.getItem(EFFORT_STORAGE_KEY);
+    return isEffortLevel(raw) ? raw : DEFAULT_EFFORT;
+  });
+  const setEffort = useCallback((level: string) => {
+    const next = isEffortLevel(level) ? level : DEFAULT_EFFORT;
+    setEffortState(next);
+    safeLocalStorage.setItem(EFFORT_STORAGE_KEY, next);
+  }, []);
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const inputHighlightRef = useRef<HTMLDivElement>(null);
@@ -497,11 +505,7 @@ export function useChatComposerState({
         }
       }
 
-      let messageContent = currentInput;
-      const selectedThinkingMode = thinkingModes.find((mode: { id: string; prefix?: string }) => mode.id === thinkingMode);
-      if (selectedThinkingMode && selectedThinkingMode.prefix) {
-        messageContent = `${selectedThinkingMode.prefix}: ${currentInput}`;
-      }
+      const messageContent = currentInput;
 
       let uploadedImages: unknown[] = [];
       if (attachedImages.length > 0) {
@@ -660,6 +664,7 @@ export function useChatComposerState({
             model: claudeModel,
             sessionSummary,
             images: uploadedImages,
+            effort,
           },
         });
       }
@@ -671,7 +676,6 @@ export function useChatComposerState({
       setUploadingImages(new Map());
       setImageErrors(new Map());
       setIsTextareaExpanded(false);
-      setThinkingMode('none');
 
       if (textareaRef.current) {
         textareaRef.current.style.height = 'auto';
@@ -707,7 +711,7 @@ export function useChatComposerState({
       setIsLoading,
       setIsUserScrolledUp,
       slashCommands,
-      thinkingMode,
+      effort,
     ],
   );
 
@@ -948,8 +952,8 @@ export function useChatComposerState({
     textareaRef,
     inputHighlightRef,
     isTextareaExpanded,
-    thinkingMode,
-    setThinkingMode,
+    effort,
+    setEffort,
     slashCommandsCount,
     filteredCommands,
     frequentCommands,

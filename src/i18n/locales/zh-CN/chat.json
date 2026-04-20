@@ -118,41 +118,36 @@
     "clearInput": "清空输入",
     "scrollToBottom": "滚动到底部"
   },
-  "thinkingMode": {
+  "effort": {
     "selector": {
-      "title": "思考模式",
-      "description": "扩展思考给 Claude 更多时间来评估替代方案",
+      "title": "Effort 级别",
+      "description": "控制 Claude 在每次回复中投入的推理深度",
       "active": "激活",
-      "tip": "更高的思考模式需要更多时间，但提供更彻底的分析"
+      "tip": "级别越高推理越深，耗时越长，消耗的 token 也越多。Max 仅限 Opus。"
     },
-    "modes": {
-      "none": {
-        "name": "标准",
-        "description": "常规 Claude 响应",
-        "prefix": ""
+    "levels": {
+      "low": {
+        "name": "低",
+        "description": "最小推理，响应最快"
       },
-      "think": {
-        "name": "思考",
-        "description": "基本扩展思考",
-        "prefix": "思考"
+      "medium": {
+        "name": "中",
+        "description": "中等推理"
       },
-      "thinkHard": {
-        "name": "深入思考",
-        "description": "更彻底的评估",
-        "prefix": "深入思考"
+      "high": {
+        "name": "高",
+        "description": "深度推理（默认）"
       },
-      "thinkHarder": {
-        "name": "更深入思考",
-        "description": "考虑替代方案的深度分析",
-        "prefix": "更深入思考"
+      "xhigh": {
+        "name": "超高",
+        "description": "扩展的深度推理"
       },
-      "ultrathink": {
-        "name": "超级思考",
-        "description": "最大思考预算",
-        "prefix": "超级思考"
+      "max": {
+        "name": "最大",
+        "description": "最大推理量（仅 Opus）"
       }
     },
-    "buttonTitle": "思考模式：{{mode}}"
+    "buttonTitle": "Effort 级别：{{level}}"
   },
   "providerSelection": {
     "title": "选择您的 AI 助手",

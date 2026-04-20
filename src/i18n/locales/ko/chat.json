@@ -118,41 +118,36 @@
     "clearInput": "입력 지우기",
     "scrollToBottom": "맨 아래로 스크롤"
   },
-  "thinkingMode": {
+  "effort": {
     "selector": {
-      "title": "Thinking 모드",
-      "description": "확장된 thinking은 Claude에게 대안을 평가할 시간을 더 줍니다",
+      "title": "Effort 레벨",
+      "description": "Claude가 각 응답에 투입하는 추론 노력을 조절합니다",
       "active": "활성",
-      "tip": "높은 thinking 모드는 시간이 더 걸리지만 더 철저한 분석을 제공합니다"
+      "tip": "레벨이 높을수록 더 깊이 추론하며 시간과 토큰이 더 소모됩니다. Max는 Opus 전용."
     },
-    "modes": {
-      "none": {
-        "name": "Standard",
-        "description": "일반 Claude 응답",
-        "prefix": ""
+    "levels": {
+      "low": {
+        "name": "Low",
+        "description": "최소 추론, 가장 빠른 응답"
       },
-      "think": {
-        "name": "Think",
-        "description": "기본 확장 thinking",
-        "prefix": "think"
+      "medium": {
+        "name": "Medium",
+        "description": "중간 수준의 추론"
       },
-      "thinkHard": {
-        "name": "Think Hard",
-        "description": "더 철저한 평가",
-        "prefix": "think hard"
+      "high": {
+        "name": "High",
+        "description": "깊은 추론 (기본값)"
       },
-      "thinkHarder": {
-        "name": "Think Harder",
-        "description": "대안을 포함한 심층 분석",
-        "prefix": "think harder"
+      "xhigh": {
+        "name": "X-High",
+        "description": "확장된 깊은 추론"
       },
-      "ultrathink": {
-        "name": "Ultrathink",
-        "description": "최대 thinking 예산",
-        "prefix": "ultrathink"
+      "max": {
+        "name": "Max",
+        "description": "최대 추론 노력 (Opus 전용)"
       }
     },
-    "buttonTitle": "Thinking 모드: {{mode}}"
+    "buttonTitle": "Effort 레벨: {{level}}"
   },
   "providerSelection": {
     "title": "AI 어시스턴트 선택",

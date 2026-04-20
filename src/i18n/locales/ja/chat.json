@@ -115,41 +115,36 @@
     "clickToChangeMode": "クリックで権限モードを変更（または入力欄でTab）",
     "showAllCommands": "すべてのコマンドを表示"
   },
-  "thinkingMode": {
+  "effort": {
     "selector": {
-      "title": "思考モード",
-      "description": "拡張思考によりClaudeがより多くの選択肢を検討できます",
+      "title": "Effortレベル",
+      "description": "Claudeが各回答にかける推論の深さを制御します",
       "active": "有効",
-      "tip": "高い思考モードは時間がかかりますが、より深い分析が得られます"
+      "tip": "レベルが高いほど推論が深くなり、時間とトークン消費が増えます。MaxはOpusのみ。"
     },
-    "modes": {
-      "none": {
-        "name": "標準",
-        "description": "通常のClaudeの応答",
-        "prefix": ""
+    "levels": {
+      "low": {
+        "name": "Low",
+        "description": "最小の推論、最速の応答"
       },
-      "think": {
-        "name": "Think",
-        "description": "基本的な拡張思考",
-        "prefix": "think"
+      "medium": {
+        "name": "Medium",
+        "description": "中程度の推論"
       },
-      "thinkHard": {
-        "name": "Think Hard",
-        "description": "より深い検討",
-        "prefix": "think hard"
+      "high": {
+        "name": "High",
+        "description": "深い推論（デフォルト）"
       },
-      "thinkHarder": {
-        "name": "Think Harder",
-        "description": "代替案を含む深い分析",
-        "prefix": "think harder"
+      "xhigh": {
+        "name": "X-High",
+        "description": "拡張された深い推論"
       },
-      "ultrathink": {
-        "name": "Ultrathink",
-        "description": "最大限の思考予算",
-        "prefix": "ultrathink"
+      "max": {
+        "name": "Max",
+        "description": "最大の推論量（Opus専用）"
       }
     },
-    "buttonTitle": "思考モード: {{mode}}"
+    "buttonTitle": "Effortレベル: {{level}}"
   },
   "providerSelection": {
     "title": "AIアシスタントを選択",

@@ -136,41 +136,36 @@
     "clearInput": "Eingabe leeren",
     "scrollToBottom": "Nach unten scrollen"
   },
-  "thinkingMode": {
+  "effort": {
     "selector": {
-      "title": "Denkmodus",
-      "description": "Erweitertes Denken gibt Claude mehr Zeit, Alternativen zu evaluieren",
+      "title": "Effort-Level",
+      "description": "Legt fest, wie viel Denkleistung Claude in jede Antwort steckt",
       "active": "Aktiv",
-      "tip": "Höhere Denkmodi brauchen mehr Zeit, liefern aber eine gründlichere Analyse"
+      "tip": "Höheres Level = tieferes Denken, mehr Zeit und mehr Tokens. Max nur mit Opus."
     },
-    "modes": {
-      "none": {
-        "name": "Standard",
-        "description": "Reguläre Claude-Antwort",
-        "prefix": ""
+    "levels": {
+      "low": {
+        "name": "Niedrig",
+        "description": "Minimales Denken, schnellste Antworten"
       },
-      "think": {
-        "name": "Denken",
-        "description": "Grundlegendes erweitertes Denken",
-        "prefix": "think"
+      "medium": {
+        "name": "Mittel",
+        "description": "Moderates Denken"
       },
-      "thinkHard": {
-        "name": "Intensiv denken",
-        "description": "Gründlichere Auswertung",
-        "prefix": "think hard"
+      "high": {
+        "name": "Hoch",
+        "description": "Tiefgehendes Denken (Standard)"
       },
-      "thinkHarder": {
-        "name": "Sehr intensiv denken",
-        "description": "Tiefgehende Analyse mit Alternativen",
-        "prefix": "think harder"
+      "xhigh": {
+        "name": "Sehr hoch",
+        "description": "Erweitertes tiefgehendes Denken"
       },
-      "ultrathink": {
-        "name": "Ultradenken",
-        "description": "Maximales Denkbudget",
-        "prefix": "ultrathink"
+      "max": {
+        "name": "Max",
+        "description": "Maximale Denkleistung (nur Opus)"
       }
     },
-    "buttonTitle": "Denkmodus: {{mode}}"
+    "buttonTitle": "Effort-Level: {{level}}"
   },
   "providerSelection": {
     "title": "KI-Assistent wählen",
