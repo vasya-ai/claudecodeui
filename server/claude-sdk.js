@@ -233,9 +233,6 @@ function mapCliOptionsToSDK(options = {}) {
     sdkOptions.effort = options.effort;
   }
 
-  // TEMP trace — removed in a follow-up cleanup commit before merge.
-  console.log('[effort] spawning claude with effort=', sdkOptions.effort ?? '(unset/default)');
-
   return sdkOptions;
 }
 
